@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="ja" class="scroll-smooth">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JST 実行可能な都内デートプラン | 単一HTML Webアプリ</title>
+  <meta name="description" content="本日・明日の都内デート計画（プランA/B/C比較＋確定版）を見やすく共有するモダンな単一HTMLアプリ。GitHub Pagesでそのまま公開可能。"/>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ["Inter", "Noto Sans JP", "system-ui", "sans-serif"] },
+          boxShadow: { soft: '0 8px 30px rgba(0,0,0,.06)' }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons (CDN) -->
+  <script defer src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Chart.js (CDN) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    /* 印刷用最適化 */
+    @media print {
+      #app { padding: 0 !important; }
+      .no-print { display: none !important; }
+      .page-break { page-break-after: always; }
+      .card { box-shadow: none !important; }
+    }
+    /* スクロールバーを控えめに */
+    ::-webkit-scrollbar { height: 8px; width: 8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(100,100,100,.35); border-radius: 9999px; }
+
+    /* アクセシビリティ向上: キーボードフォーカス */
+    .kbd-focus:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; border-radius: .5rem; }
+
+    /* ツールチップ */
+    .tooltip { position: relative; }
+    .tooltip[data-show]::after {
+      content: attr(data-tip);
+      position: absolute; z-index: 50;
+      white-space: pre-wrap;
+      top: 110%; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.85); color: #fff;
+      padding: .5rem .75rem; border-radius: .5rem; width: max-content; max-width: 22rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,.2);
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+<div id="app" class="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">
+
+  <!-- README (コメント) -->
+  <!--
+    ◇ このファイルは単一HTMLのWebアプリです。
+    ◇ 公開方法（GitHub Pages）
+       1) 新規リポジトリを作成し、この index.html を直下にコミット
+       2) GitHub > Settings > Pages > Branch: main / Folder: /root を選択し保存
+       3) 数十秒後、公開URLが発行されます
+    ◇ カスタマイズ
+       - 下部 <script type="application/json" id="plan-data"> のJSONを書き換えるだけで更新できます
+       - 脚注やリンクに実URLを入れると、全UIでクリック可能になります
+  -->
+
+  <!-- Header -->
+  <header class="sticky top-0 z-40 no-print backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:supports-[backdrop-filter]:bg-gray-900/70 bg-white/90 dark:bg-gray-900/90 border-b border-gray-200/60 dark:border-gray-800/60">
+    <div class="max-w-5xl mx-auto flex items-center justify-between gap-3 px-4 py-3">
+      <div class="flex items-center gap-3">
+        <button id="menuTop" class="md:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 kbd-focus" aria-label="メニュー">
+          <i data-lucide="menu"></i>
+        </button>
+        <div>
+          <h1 class="text-lg sm:text-xl font-semibold tracking-tight">JST 実行可能な都内デートプラン</h1>
+          <p id="dateRange" class="text-xs text-gray-600 dark:text-gray-400">本日〜明日の行程</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="#footnotes" class="hidden md:inline-flex items-center gap-1 text-sm px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 kbd-focus"><i data-lucide="link"></i> 公式リンク</a>
+        <button id="themeToggle" class="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 kbd-focus" aria-label="テーマ切替">
+          <i id="themeIcon" data-lucide="moon"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tab Nav -->
+    <nav id="tablist" role="tablist" aria-label="セクション" class="overflow-x-auto border-t border-gray-100 dark:border-gray-800">
+      <div class="max-w-5xl mx-auto flex gap-2 px-2 py-2">
+        <!-- tabs are injected here -->
+      </div>
+    </nav>
+  </header>
+
+  <!-- 当日チェック パネル -->
+  <section class="mt-4 mb-6" aria-labelledby="todaycheck-title">
+    <div class="card rounded-2xl shadow-soft bg-white dark:bg-gray-800 p-4 sm:p-5">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-2">
+          <i data-lucide="check-circle-2" class="text-green-600"></i>
+          <h2 id="todaycheck-title" class="text-base font-semibold">当日チェック</h2>
+        </div>
+        <div class="text-xs text-gray-500">再読込で最新化 / 公式を優先</div>
+      </div>
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+        <a target="_blank" rel="noopener" href="https://www.tokyu.co.jp/unten/" class="group inline-flex items-center gap-2 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/50 dark:hover:bg-gray-700">
+          <i data-lucide="train"></i><span>東急 田園都市線：運行情報</span><i data-lucide="external-link" class="opacity-60 group-hover:opacity-100 ml-auto"></i>
+        </a>
+        <a target="_blank" rel="noopener" href="https://traininfo.jreast.co.jp/" class="group inline-flex items-center gap-2 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/50 dark:hover:bg-gray-700">
+          <i data-lucide="train-front"></i><span>JR東日本：運行情報</span><i data-lucide="external-link" class="opacity-60 group-hover:opacity-100 ml-auto"></i>
+        </a>
+        <a target="_blank" rel="noopener" href="https://www.yurikamome.tokyo/" class="group inline-flex items-center gap-2 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/50 dark:hover:bg-gray-700">
+          <i data-lucide="tram-front"></i><span>ゆりかもめ：運行/運賃</span><i data-lucide="external-link" class="opacity-60 group-hover:opacity-100 ml-auto"></i>
+        </a>
+        <a target="_blank" rel="noopener" href="https://www.smallworlds.jp/" class="group inline-flex items-center gap-2 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/50 dark:hover:bg-gray-700">
+          <i data-lucide="building-2"></i><span>SMALL WORLDS：営業・当日券</span><i data-lucide="external-link" class="opacity-60 group-hover:opacity-100 ml-auto"></i>
+        </a>
+        <a target="_blank" rel="noopener" href="https://www.muji.com/jp/ja/shop/detail/046601" class="group inline-flex items-center gap-2 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/50 dark:hover:bg-gray-700">
+          <i data-lucide="store"></i><span>無印良品 東京有明：店舗/カフェ</span><i data-lucide="external-link" class="opacity-60 group-hover:opacity-100 ml-auto"></i>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Panels (Tab Panels will be injected) -->
+  <main id="panels" class="space-y-6">
+    <!-- sections are injected here -->
+  </main>
+
+  <footer class="mt-10 mb-6 text-center text-xs text-gray-500">
+    <p>© <span id="year"></span> 都内デート計画 | 単一HTMLアプリ（Tailwind / Lucide / Chart.js）</p>
+  </footer>
+</div>
+
+<!-- ============================ DATA ============================ -->
+<script type="application/json" id="plan-data">
+{
+  "meta": {
+    "title": "JST 実行可能な都内デートプラン",
+    "today": "2025-08-14",
+    "tomorrow": "2025-08-15",
+    "language": "ja"
+  },
+  "lodging": {
+    "name": "コンフォートホテルERA 東京東神田",
+    "checkin": "15:00",
+    "checkout": "10:00",
+    "notes": "Library Cafe 10:00–24:00 / フロント24h",
+    "url": "【公式URLをここに】",
+    "nearest": "JR 馬喰町駅 2番出口 徒歩約4分",
+    "map": "https://www.google.com/maps?q=コンフォートホテルERA+東京東神田"
+  },
+  "dinner": {
+    "name": "Tchin-Tchin GORO 神田駅前店",
+    "reservation": "18:30",
+    "arrivalTarget": "18:10",
+    "hours": "月–木 17:00–23:30（LO22:00）/ 土日祝 15:00–23:00（LO21:30）",
+    "dresscode": "スマートカジュアル推奨",
+    "payments": "主要クレカ/PayPay",
+    "url": "【公式/媒体URLをここに】",
+    "map": "https://www.google.com/maps?q=Tchin-Tchin+GORO+神田駅前店"
+  },
+  "wish": {
+    "areas": ["神田周辺", "有明・新橋（ゆりかもめ沿線）"],
+    "indoorFirst": true,
+    "shortWalkMetersMax": 800,
+    "nonDaily": true,
+    "costPerformance": true,
+    "shoppingMission": true
+  },
+  "spots": {
+    "smallWorlds": {
+      "name": "SMALL WORLDS TOKYO",
+      "hours": "09:00–19:00（最終入場18:00）",
+      "durationMin": 90,
+      "url": "【公式URLをここに】",
+      "map": "https://www.google.com/maps?q=SMALL+WORLDS+TOKYO"
+    },
+    "mujiAriake": {
+      "name": "無印良品 東京有明",
+      "hours": "10:00–20:00 / Café&Meal 11:00–20:00（LO19:00）",
+      "url": "【公式ショップURLをここに】",
+      "map": "https://www.google.com/maps?q=無印良品+東京有明"
+    },
+    "kandaLunch": {
+      "name": "かんだやぶそば（例）",
+      "hours": "11:30–20:00（LO19:30想定）",
+      "url": "【公式/媒体URLをここに】",
+      "map": "https://www.google.com/maps?q=かんだやぶそば"
+    },
+    "stationAccessibility": {
+      "kandaJR": "エレベーターあり",
+      "yurikamome": "全駅エレベーター"
+    }
+  },
+  "plans": {
+    "A": { "indoorRatio": 0.9, "summary": "本日=神田中心、明日=有明ショートトリップ（屋内比率最大）" },
+    "B": { "indoorRatio": 0.85, "summary": "本日=有明直行→15時チェックイン→夜神田" },
+    "C": { "indoorRatio": 0.75, "summary": "本日=雑貨＆カフェ濃いめ、明日=ゆりかもめ長め" }
+  },
+  "timelineToday": [
+    {"time":"10:00","title":"中央林間 発","detail":"田園都市線→渋谷→JR山手線→神田（約70分、IC概算：東急¥330–380＋JR¥208）","buffer":10},
+    {"time":"12:00","title":"神田ランチ","detail":"徒歩12–15分（疲労時タクシー5分/¥700–1,000）","buffer":15},
+    {"time":"13:20","title":"雑貨・文具（神保町）","detail":"文房堂など。距離1km超→タクシー推奨","buffer":10},
+    {"time":"15:00","title":"ホテルチェックイン＆休憩","detail":"Library Cafe で一息","buffer":0},
+    {"time":"17:35","title":"ホテル→GORO","detail":"タクシー約10分/¥1,200–1,600（電車可）","buffer":0},
+    {"time":"18:10","title":"GORO到着（厳守）","detail":"18:30予約","buffer":20},
+    {"time":"20:50","title":"神田→ホテル","detail":"JRまたはタクシー10分","buffer":0}
+  ],
+  "timelineTomorrow": [
+    {"time":"10:00","title":"チェックアウト","detail":"荷物預け or ロッカー/宅配"},
+    {"time":"10:35","title":"新橋→有明（ゆりかもめ）","detail":"約20分。前面展望席は1–2本見送りで確率UP"},
+    {"time":"11:05","title":"SMALL WORLDS（90–120分）","detail":"屋内・最終入場18:00"},
+    {"time":"12:45","title":"MUJI 東京有明 & Café","detail":"10:00–20:00 / Café 11:00–20:00"},
+    {"time":"14:05","title":"新橋→渋谷→中央林間","detail":"約60–70分（IC合算¥700–¥800/人）"},
+    {"time":"15:45","title":"中央林間着→徒歩10分で自宅","detail":"〜16:00到着"}
+  ],
+  "routes": [
+    {"from":"中央林間","to":"神田","mode":"電車","time":"約70分","fareIC":"約¥540–¥590/人","transfers":1,"walkMeters": "駅内中心","elevator":"有（JR神田）","taxiAlt":"—"},
+    {"from":"神田","to":"ホテル","mode":"電車＋徒歩","time":"20–30分","fareIC":"約¥200/人","transfers":1,"walkMeters":"〜400m","elevator":"馬喰町2番出口","taxiAlt":"8–12分/¥1,200–1,600"},
+    {"from":"ホテル","to":"GORO","mode":"タクシー推奨","time":"約10分","fareIC":"—","transfers":0,"walkMeters":"150–250m","elevator":"—","taxiAlt":"同左"},
+    {"from":"ホテル","to":"有明","mode":"JR＋ゆりかもめ","time":"約40–50分","fareIC":"約¥500台/人","transfers":2,"walkMeters":"各200–600m","elevator":"ゆりかもめ全駅","taxiAlt":"短距離¥600–900"}
+  ],
+  "shopping": {
+    "ariake": [{"name":"SMALL WORLDS限定ステッカー","size":"A6程度","price":"¥300–¥800","where":"1Fショップ","url":"【公式ショップURL】"}],
+    "kanda": [{"name":"文房堂 紙もの/シール","size":"B6以下","price":"¥300–¥1,500","where":"文房堂 神田本店","url":"【文房堂URL】"}],
+    "muji": [{"name":"PP小物入れ/A7カードケース等","size":"掌〜B6","price":"¥190–¥990","where":"無印良品 東京有明","url":"【MUJI商品URL】"}]
+  },
+  "budget": {
+    "transport": "¥6,000–¥8,000（2人）",
+    "admission": "¥5,400–¥6,000（SW当日券/2人）",
+    "meals": {"lunch":"¥3,000–¥4,000","dinner":"¥6,000–¥8,000","cafe":"¥1,500–¥3,000"},
+    "shoppingCapOptions": ["¥2,000","¥3,000","¥5,000"]
+  },
+  "footnotes": [
+    {"label":"ホテル公式","url":"【ホテル公式URL】","note":"CI15:00/CO10:00、Library Cafe 10:00–24:00"},
+    {"label":"GORO公式/媒体","url":"【GORO公式または媒体URL】","note":"営業時間/支払い/無休"},
+    {"label":"SMALL WORLDS 公式","url":"【SW公式URL】","note":"9:00–19:00 最終18:00／当日券"},
+    {"label":"無印 良品計画 公式","url":"【MUJI東京有明URL】","note":"10:00–20:00／Café 11:00–20:00"},
+    {"label":"ゆりかもめ 公式","url":"【ゆりかもめ公式URL】","note":"自動運転・全駅EV・運行情報"}
+  ]
+}
+</script>
+
+<!-- ============================ APP SCRIPT ============================ -->
+<script type="module">
+  // ---------- Utilities ----------
+  const $ = (sel, el=document) => el.querySelector(sel);
+  const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
+  const isUrl = (s) => typeof s === 'string' && /^https?:\/\//.test(s);
+  const nf = new Intl.NumberFormat('ja-JP');
+  const yen = (n) => `¥${nf.format(Math.round(n))}`;
+
+  function parseRangeYen(str){
+    if(!str) return [0,0];
+    const nums = (str+"").replace(/[^0-9–\-]/g,'').split(/[–-]/).filter(Boolean).map(s=>parseInt(s,10));
+    if(nums.length===0) return [0,0];
+    if(nums.length===1) return [nums[0], nums[0]];
+    return [Math.min(nums[0], nums[1]), Math.max(nums[0], nums[1])];
+  }
+
+  function avgFromTextMeters(s){
+    if(!s) return 0;
+    // cases: "〜400m", "150–250m", "各200–600m", "駅内中心"
+    if(/駅内中心/.test(s)) return 300; // 仮定
+    const nums = s.replace(/[^0-9–\-]/g,'').split(/[–-]/).filter(Boolean).map(x=>parseInt(x,10));
+    if(nums.length===0) return 0;
+    if(nums.length===1) return nums[0];
+    return Math.round((nums[0]+nums[1])/2);
+  }
+
+  function stepsFromMeters(m){
+    const steps = m/0.7; // 0.7m/歩の仮定
+    const low = Math.round(steps*0.8);
+    const high = Math.round(steps*1.2);
+    return {steps: Math.round(steps), low, high};
+  }
+
+  function ensureHref(a, url){
+    if(isUrl(url)) { a.href = url; a.target = '_blank'; a.rel = 'noopener'; }
+    else { a.removeAttribute('href'); a.classList.add('pointer-events-none','opacity-60'); a.title = 'URL未設定（データを更新してください）'; }
+  }
+
+  function fmtTimeRange(meta){
+    const t = meta?.today, tm = meta?.tomorrow;
+    if(!t||!tm) return '—';
+    return `${t} → ${tm}`;
+  }
+
+  // ---------- Theme ----------
+  const root = document.documentElement;
+  const themeKey = 'dateapp-theme';
+  function applyTheme(mode){
+    if(mode==='dark') root.classList.add('dark');
+    else root.classList.remove('dark');
+    localStorage.setItem(themeKey, mode);
+    const icon = $('#themeIcon');
+    if(icon){ icon.setAttribute('data-lucide', mode==='dark' ? 'sun' : 'moon'); lucide.createIcons(); }
+  }
+  function initTheme(){
+    const saved = localStorage.getItem(themeKey);
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+    $('#themeToggle')?.addEventListener('click', ()=>{
+      applyTheme(root.classList.contains('dark') ? 'light' : 'dark');
+    });
+  }
+
+  // ---------- Tabs (with hash) ----------
+  const tabs = [
+    {id:'summary', label:'要約', icon:'sparkles'},
+    {id:'plans', label:'プラン比較', icon:'table-2'},
+    {id:'today', label:'確定版：本日', icon:'calendar-clock'},
+    {id:'tomorrow', label:'確定版：明日', icon:'calendar-days'},
+    {id:'routes', label:'ルート詳細', icon:'route'},
+    {id:'tickets', label:'予約・注意点', icon:'ticket'},
+    {id:'shopping', label:'買い物ミッション', icon:'bag'},
+    {id:'budget', label:'予算まとめ', icon:'coins'},
+    {id:'packing', label:'パッキング＆チェック', icon:'backpack'},
+    {id:'footnotes', label:'脚注（公式リンク）', icon:'link'}
+  ];
+
+  function buildTabs(){
+    const list = $('#tablist > div');
+    tabs.forEach((t,i)=>{
+      const btn = document.createElement('button');
+      btn.id = `tab-${t.id}`;
+      btn.setAttribute('role','tab');
+      btn.setAttribute('aria-selected', i===0?'true':'false');
+      btn.setAttribute('aria-controls', `panel-${t.id}`);
+      btn.className = 'kbd-focus shrink-0 inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-sm font-medium bg-gray-100/70 hover:bg-gray-200 dark:bg-gray-800/60 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-100';
+      btn.innerHTML = `<i data-lucide="${t.icon}"></i><span>${t.label}</span>`;
+      btn.addEventListener('click', ()=> setActiveTab(t.id, true));
+      btn.addEventListener('keydown', (e)=>{
+        const idx = tabs.findIndex(x=>x.id===getActiveTab());
+        if(e.key==='ArrowRight'){ setActiveTab(tabs[(idx+1)%tabs.length].id, true); e.preventDefault(); }
+        if(e.key==='ArrowLeft'){ setActiveTab(tabs[(idx-1+tabs.length)%tabs.length].id, true); e.preventDefault(); }
+        if(e.key==='Enter' || e.key===' '){ setActiveTab(t.id, true); e.preventDefault(); }
+      });
+      list.appendChild(btn);
+    });
+  }
+
+  function buildPanels(data){
+    const wrap = $('#panels');
+    wrap.innerHTML = '';
+    tabs.forEach((t,i)=>{
+      const sec = document.createElement('section');
+      sec.id = `panel-${t.id}`;
+      sec.setAttribute('role','tabpanel');
+      sec.setAttribute('aria-labelledby', `tab-${t.id}`);
+      sec.hidden = i!==0;
+      sec.className = 'card rounded-2xl shadow-soft bg-white dark:bg-gray-800 p-4 sm:p-6';
+      // Fill content per tab
+      sec.appendChild(renderTabContent(t.id, data));
+      wrap.appendChild(sec);
+    });
+  }
+
+  function getActiveTab(){
+    const h = (location.hash||'').replace('#','');
+    return tabs.some(t=>t.id===h) ? h : tabs[0].id;
+  }
+  function setActiveTab(id, pushHash=false){
+    tabs.forEach(t=>{
+      const btn = $(`#tab-${t.id}`);
+      const panel = $(`#panel-${t.id}`);
+      if(btn) btn.setAttribute('aria-selected', t.id===id ? 'true' : 'false');
+      if(panel) panel.hidden = t.id!==id;
+    });
+    if(pushHash) location.hash = id;
+  }
+
+  window.addEventListener('hashchange', ()=> setActiveTab(getActiveTab(), false));
+
+  // ---------- Renderers ----------
+  function renderBadge(text){
+    const s = document.createElement('span');
+    s.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200';
+    s.textContent = text;
+    return s;
+  }
+
+  function card(title, bodyEl, icon='dot', actionsEl){
+    const div = document.createElement('div');
+    div.className = 'rounded-2xl border border-gray-200 dark:border-gray-700 p-4 sm:p-5 bg-white/50 dark:bg-gray-800/50';
+    const head = document.createElement('div');
+    head.className = 'flex items-center justify-between gap-3';
+    const h = document.createElement('h3'); h.className='font-semibold flex items-center gap-2'; h.innerHTML = `<i data-lucide="${icon}"></i>${title}`;
+    head.appendChild(h);
+    if(actionsEl) head.appendChild(actionsEl);
+    const body = document.createElement('div'); body.className='mt-3'; body.appendChild(bodyEl);
+    div.appendChild(head); div.appendChild(body);
+    return div;
+  }
+
+  function linkify(label, url){
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.className = 'text-blue-600 hover:underline dark:text-blue-400';
+    ensureHref(a, url);
+    return a;
+  }
+
+  function renderSummaryTab(data){
+    const wrap = document.createElement('div');
+
+    // Goals
+    const goals = document.createElement('div');
+    goals.className = 'grid grid-cols-1 sm:grid-cols-2 gap-4';
+    const g1 = document.createElement('ul'); g1.className='space-y-2 text-sm';
+    g1.innerHTML = `
+      <li>本日のゴール：神田らしさ＆18:10 到着でディナー</li>
+      <li>明日のゴール：有明（SMALL WORLDS）＋ゆりかもめ＋MUJIを短時間で</li>
+      <li>屋内優先・徒歩各区間 ${data.wish.shortWalkMetersMax}m 以内目安</li>
+    `;
+    const g2 = document.createElement('ul'); g2.className='space-y-2 text-sm';
+    g2.innerHTML = `
+      <li>非日常体験＆コスパ重視</li>
+      <li>買い物ミッション：神田/有明/無印の小物</li>
+      <li>ハッシュリンクで各タブ直行可</li>
+    `;
+    goals.appendChild(card('本日・明日のゴール', g1, 'target')); goals.appendChild(card('方針', g2, 'lightbulb')); 
+
+    // Indoor ratio chart
+    const chartWrap = document.createElement('div');
+    chartWrap.className = 'grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4';
+
+    const canvas = document.createElement('canvas'); canvas.id='ratioChart'; canvas.height=160;
+    const chartCard = card('屋内比率（プラン別）', canvas, 'pie-chart');
+
+    // Steps estimate
+    const meters = data.routes.map(r=>avgFromTextMeters(r.walkMeters||'')).reduce((a,b)=>a+b,0);
+    const step = stepsFromMeters(meters);
+    const stepBox = document.createElement('div');
+    stepBox.className='text-sm';
+    stepBox.innerHTML = `本日＋明日の徒歩距離（ルート起点の目安）合計：約<strong>${nf.format(meters)}</strong> m → 歩数 <strong>${nf.format(step.low)}</strong>〜<strong>${nf.format(step.high)}</strong> 歩（±20%）`;
+    const stepCard = card('徒歩距離と歩数目安', stepBox, 'walk');
+
+    chartWrap.appendChild(chartCard); chartWrap.appendChild(stepCard);
+
+    wrap.appendChild(goals); wrap.appendChild(chartWrap);
+
+    // After render, build chart
+    queueMicrotask(()=>{
+      const ctx = document.getElementById('ratioChart');
+      const ds = data.plans;
+      const labels = ['プランA','プランB','プランC'];
+      const vals = [ds.A.indoorRatio, ds.B.indoorRatio, ds.C.indoorRatio].map(x=>Math.round(x*100));
+      new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ label:'屋内比率(%)', data: vals }] }, options: { responsive:true, plugins:{ legend:{display:false} } } });
+    });
+
+    return wrap;
+  }
+
+  function renderPlansTab(data){
+    const wrap = document.createElement('div');
+    const tbl = document.createElement('div');
+    tbl.className = 'overflow-x-auto';
+    tbl.innerHTML = `
+      <table class="min-w-[720px] w-full text-sm">
+        <thead class="text-left text-gray-600 dark:text-gray-300">
+          <tr>
+            <th class="py-2 pr-3">プラン</th>
+            <th class="py-2 pr-3">要約</th>
+            <th class="py-2 pr-3">屋内比率</th>
+            <th class="py-2 pr-3">特徴</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+          ${['A','B','C'].map(k=>{
+            const p = data.plans[k];
+            const feats = (
+              k==='A' ? '本日=神田、明日=有明。移動短・休憩多め' :
+              k==='B' ? '本日午前に有明→15時CI→夜神田。移動やや長め' :
+              '雑貨＆カフェ濃いめ。明日ゆりかもめを長めに'
+            );
+            return `<tr>
+              <td class="py-2 pr-3 font-medium">プラン${k}</td>
+              <td class="py-2 pr-3">${p.summary}</td>
+              <td class="py-2 pr-3">${Math.round(p.indoorRatio*100)}%</td>
+              <td class="py-2 pr-3">${feats}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+
+    // Tips card
+    const tips = document.createElement('div'); tips.className='text-sm space-y-2';
+    tips.innerHTML = `
+      <div class="flex items-start gap-2"><i data-lucide="tram-front"></i><p><strong>ゆりかもめ座席</strong>：先頭車両の最前列・進行方向<strong>右側</strong>が湾岸ビュー◎。混雑時は1〜2本見送りで確率UP。</p></div>
+      <div class="flex items-start gap-2"><i data-lucide="cloud-rain"></i><p><strong>雨/混雑/疲労</strong>：各行程でタクシー代替や屋内回避をツールチップに用意。</p></div>
+    `;
+
+    wrap.appendChild(tbl);
+    wrap.appendChild(card('アドバイス', tips, 'info'));
+    return wrap;
+  }
+
+  function renderTimeline(items, day){
+    const list = document.createElement('ol');
+    list.className = 'space-y-3';
+    items.forEach(it=>{
+      const li = document.createElement('li');
+      li.className = 'rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex items-start gap-3';
+      li.innerHTML = `
+        <div class="shrink-0 w-16 text-sm font-mono text-gray-600 dark:text-gray-300">${it.time}</div>
+        <div class="min-w-0 flex-1">
+          <div class="font-medium">${it.title}</div>
+          <div class="text-sm text-gray-600 dark:text-gray-300">${it.detail || ''}</div>
+          ${it.buffer?`<div class='text-xs text-gray-500 mt-1'>バッファ：${it.buffer}分</div>`:''}
+        </div>
+        <button class="tooltip ml-auto text-xs px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600" data-tip="${tooltipFor(it.title)}">雨・混雑・疲労</button>
+      `;
+      list.appendChild(li);
+    });
+    // tooltip toggle
+    list.addEventListener('click', (e)=>{
+      const b = e.target.closest('.tooltip'); if(!b) return;
+      $$('[data-show]', list).forEach(x=>x.removeAttribute('data-show'));
+      b.toggleAttribute('data-show');
+    });
+    return list;
+  }
+
+  function tooltipFor(title){
+    const dict = [
+      {kw:'ランチ', tip:'徒歩→タクシー（5分/¥700–1,000）。席待ちなら近隣の静かな喫茶へ切替'},
+      {kw:'雑貨', tip:'距離>800mならタクシーへ（8–12分/¥1,200–1,600）。屋外待機は屋内カフェへ'},
+      {kw:'チェックアウト', tip:'荷物はホテル一時預かり/駅ロッカー/宅配便で身軽に'},
+      {kw:'SMALL WORLDS', tip:'混雑時は入場時間を後ろにずらす→MUJI先行に入替'},
+      {kw:'MUJI', tip:'混雑時は買い物だけ→カフェは別フロア/時間帯変更'},
+      {kw:'GORO', tip:'到着が遅れそう→タクシー直行（約10分）で18:10厳守'}
+    ];
+    const hit = dict.find(d=>title.includes(d.kw));
+    return (hit?hit.tip:'徒歩→タクシーに切替、屋内で待機');
+  }
+
+  function renderRoutesTab(data){
+    const wrap = document.createElement('div');
+    const tbl = document.createElement('div'); tbl.className='overflow-x-auto';
+    const rows = data.routes.map(r=>`<tr>
+      <td class='py-2 pr-3 font-medium'>${r.from} → ${r.to}</td>
+      <td class='py-2 pr-3'>${r.mode}</td>
+      <td class='py-2 pr-3'>${r.time}</td>
+      <td class='py-2 pr-3'>${r.fareIC}</td>
+      <td class='py-2 pr-3 text-center'>${r.transfers}</td>
+      <td class='py-2 pr-3'>${r.walkMeters}</td>
+      <td class='py-2 pr-3'>${r.elevator}</td>
+      <td class='py-2 pr-3'>${r.taxiAlt}</td>
+    </tr>`).join('');
+    tbl.innerHTML = `
+      <table class="min-w-[820px] w-full text-sm">
+        <thead class="text-left text-gray-600 dark:text-gray-300">
+          <tr>
+            <th class='py-2 pr-3'>区間</th>
+            <th class='py-2 pr-3'>交通手段</th>
+            <th class='py-2 pr-3'>所要</th>
+            <th class='py-2 pr-3'>運賃(IC)</th>
+            <th class='py-2 pr-3 text-center'>乗換</th>
+            <th class='py-2 pr-3'>徒歩m</th>
+            <th class='py-2 pr-3'>エレベーター</th>
+            <th class='py-2 pr-3'>代替（タクシー）</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 dark:divide-gray-700">${rows}</tbody>
+      </table>`;
+
+    // tip
+    const tip = document.createElement('p'); tip.className='text-xs text-gray-500 mt-2';
+    tip.textContent = '※ 運賃はIC概算。ダイヤ/混雑で前後します。';
+
+    wrap.appendChild(tbl); wrap.appendChild(tip);
+    return wrap;
+  }
+
+  function renderTicketsTab(data){
+    const wrap = document.createElement('div');
+    const grid = document.createElement('div'); grid.className='grid grid-cols-1 md:grid-cols-2 gap-4';
+
+    // Hotel
+    const hBody = document.createElement('div'); hBody.className='text-sm space-y-1';
+    hBody.append('チェックイン ', data.lodging.checkin, ' / チェックアウト ', data.lodging.checkout);
+    hBody.appendChild(document.createElement('br'));
+    hBody.append('メモ：', data.lodging.notes);
+    const hFoot = document.createElement('div'); hFoot.className='mt-2 text-sm';
+    hFoot.appendChild(linkify('ホテル公式', data.lodging.url));
+    hFoot.insertAdjacentHTML('beforeend',' · ');
+    hFoot.appendChild(linkify('Googleマップ', data.lodging.map));
+
+    grid.appendChild(card(data.lodging.name, hBody, 'hotel', hFoot));
+
+    // Dinner
+    const dBody = document.createElement('div'); dBody.className='text-sm space-y-1';
+    dBody.innerHTML = `予約 <strong>${data.dinner.reservation}</strong>（<span class='text-red-600 dark:text-red-400'>${data.dinner.arrivalTarget} 到着厳守</span>）<br>営業時間：${data.dinner.hours}<br>ドレスコード：${data.dinner.dresscode}<br>支払い：${data.dinner.payments}`;
+    const dFoot = document.createElement('div'); dFoot.className='mt-2 text-sm';
+    dFoot.appendChild(linkify('店舗ページ', data.dinner.url));
+    dFoot.insertAdjacentHTML('beforeend',' · ');
+    dFoot.appendChild(linkify('Googleマップ', data.dinner.map));
+
+    grid.appendChild(card(data.dinner.name, dBody, 'wine', dFoot));
+
+    // Spots
+    const s = data.spots;
+    const spotGrid = document.createElement('div'); spotGrid.className='grid grid-cols-1 sm:grid-cols-2 gap-4';
+    [['SMALL WORLDS TOKYO', s.smallWorlds], ['無印良品 東京有明', s.mujiAriake]].forEach(([title, sp])=>{
+      const body = document.createElement('div'); body.className='text-sm space-y-1';
+      body.innerHTML = `営業時間：${sp.hours}<br>所要：${sp.durationMin?sp.durationMin+'分〜':''}`;
+      const acts = document.createElement('div'); acts.className='mt-2 text-sm';
+      acts.appendChild(linkify('公式ページ', sp.url)); acts.insertAdjacentHTML('beforeend',' · ');
+      acts.appendChild(linkify('Googleマップ', sp.map));
+      spotGrid.appendChild(card(title, body, 'ticket', acts));
+    });
+
+    grid.appendChild(card('観光スポット', spotGrid, 'map')); 
+
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
+  function renderShoppingTab(data){
+    const wrap = document.createElement('div');
+    const grid = document.createElement('div'); grid.className='grid grid-cols-1 md:grid-cols-3 gap-4';
+    const blocks = [
+      {title:'有明版（ミュージアム）', key:'ariake', icon:'badge-check'},
+      {title:'神田版（文具・紙もの）', key:'kanda', icon:'book-marked'},
+      {title:'無印版（大型店）', key:'muji', icon:'boxes'}
+    ];
+    blocks.forEach(b=>{
+      const list = document.createElement('ul'); list.className='space-y-2 text-sm';
+      (data.shopping[b.key]||[]).forEach(it=>{
+        const li = document.createElement('li');
+        const a = isUrl(it.url) ? `<a class="text-blue-600 hover:underline dark:text-blue-400" href="${it.url}" target="_blank" rel="noopener">${it.name}</a>` : it.name + '（URL未設定）';
+        li.innerHTML = `${a}<div class='text-xs text-gray-500'>サイズ：${it.size} / 価格：${it.price} / 買える場所：${it.where}</div>`;
+        list.appendChild(li);
+      });
+      grid.appendChild(card(b.title, list, b.icon));
+    });
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
+  function renderBudgetTab(data){
+    const wrap = document.createElement('div');
+
+    // Controls
+    const ctrl = document.createElement('div'); ctrl.className='flex items-center gap-4 flex-wrap';
+    const label = document.createElement('label'); label.className='text-sm'; label.textContent = '買い物上限（スライダー）';
+    const slider = document.createElement('input'); slider.type='range'; slider.min=0; slider.max=2; slider.step=1; slider.value=1; slider.className='w-60 accent-blue-600';
+    const capOut = document.createElement('span'); capOut.className='text-sm font-medium px-2 py-1 rounded bg-blue-50 dark:bg-blue-900/40';
+    ctrl.append(label, slider, capOut);
+
+    // Totals
+    const totalBox = document.createElement('div'); totalBox.className='text-sm';
+
+    // Chart
+    const canvas = document.createElement('canvas'); canvas.id='budgetChart'; canvas.height=160;
+
+    const grid = document.createElement('div'); grid.className='grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3';
+    grid.appendChild(card('費目内訳（目安）', canvas, 'donut')); 
+    grid.appendChild(card('合計レンジ', totalBox, 'calculator')); 
+
+    wrap.appendChild(ctrl); wrap.appendChild(grid);
+
+    const caps = data.budget.shoppingCapOptions.map(s=>parseInt(s.replace(/[^0-9]/g,''),10));
+
+    function calc(){
+      const cap = caps[parseInt(slider.value,10)];
+      capOut.textContent = yen(cap);
+      const [tMin,tMax] = parseRangeYen(data.budget.transport);
+      const [aMin,aMax] = parseRangeYen(data.budget.admission);
+      const meals = data.budget.meals; 
+      const [lMin,lMax] = parseRangeYen(meals.lunch);
+      const [dMin,dMax] = parseRangeYen(meals.dinner);
+      const [cMin,cMax] = parseRangeYen(meals.cafe);
+      const mMin = lMin+dMin+cMin, mMax = lMax+dMax+cMax;
+      const totalMin = tMin + aMin + mMin + cap;
+      const totalMax = tMax + aMax + mMax + cap;
+      totalBox.innerHTML = `
+        <ul class='space-y-1'>
+          <li>交通：${data.budget.transport}</li>
+          <li>入場：${data.budget.admission}</li>
+          <li>飲食：昼${meals.lunch} / 夜${meals.dinner} / カフェ${meals.cafe}</li>
+          <li>買い物上限：<strong>${yen(cap)}</strong></li>
+          <li class='mt-2'>合計（概算）：<strong>${yen(totalMin)}〜${yen(totalMax)}</strong></li>
+        </ul>`;
+      // Chart with midpoints
+      const transportMid = (tMin+tMax)/2, admMid=(aMin+aMax)/2, mealsMid=(mMin+mMax)/2;
+      drawBudgetChart(transportMid, admMid, mealsMid, cap);
+    }
+
+    let chart;
+    function drawBudgetChart(tr,ad,me,sh){
+      const ctx = document.getElementById('budgetChart');
+      const dataSet = { labels:['交通','入場','飲食','買い物'], datasets:[{ data:[tr,ad,me,sh] }] };
+      if(chart) { chart.data = dataSet; chart.update(); return; }
+      chart = new Chart(ctx,{type:'doughnut', data: dataSet, options:{ plugins:{ legend:{position:'bottom'} } }});
+    }
+
+    slider.addEventListener('input', calc);
+    calc();
+    return wrap;
+  }
+
+  function renderPackingTab(){
+    const list = document.createElement('ul'); list.className='grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm';
+    const items = [
+      'スマートカジュアル＋薄手の羽織',
+      '折りたたみ傘', 'PASMO/Suica', 'モバイルバッテリー', 'エコバッグ', '保冷/保温ボトル', 'タクシー配車アプリ（GO等）', '運行情報アプリ（東急/JR/ゆりかもめ）'
+    ];
+    items.forEach(t=>{ const li=document.createElement('li'); li.className='p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50'; li.textContent=t; list.appendChild(li); });
+    return list;
+  }
+
+  function renderFootnotesTab(data){
+    const list = document.createElement('ol'); list.className='space-y-3';
+    data.footnotes.forEach((f,i)=>{
+      const li = document.createElement('li'); li.className='text-sm flex items-start gap-2';
+      const a = linkify(`${i+1}. ${f.label}`, f.url);
+      const note = document.createElement('div'); note.className='text-gray-600 dark:text-gray-300'; note.textContent = ` ／ ${f.note}`;
+      li.appendChild(a); li.appendChild(note);
+      list.appendChild(li);
+    });
+    const hint = document.createElement('p'); hint.className='text-xs text-gray-500 mt-3';
+    hint.textContent = '※ URLが未設定の項目は「URL未設定」と表示されます。データJSONを更新してください。';
+    const wrap = document.createElement('div'); wrap.appendChild(list); wrap.appendChild(hint); return wrap;
+  }
+
+  function renderTabContent(id, data){
+    switch(id){
+      case 'summary': return renderSummaryTab(data);
+      case 'plans': return renderPlansTab(data);
+      case 'today': return renderTimeline(data.timelineToday, 'today');
+      case 'tomorrow': return renderTimeline(data.timelineTomorrow, 'tomorrow');
+      case 'routes': return renderRoutesTab(data);
+      case 'tickets': return renderTicketsTab(data);
+      case 'shopping': return renderShoppingTab(data);
+      case 'budget': return renderBudgetTab(data);
+      case 'packing': return renderPackingTab(data);
+      case 'footnotes': return renderFootnotesTab(data);
+      default: return document.createTextNode('内容未定');
+    }
+  }
+
+  // ---------- Boot ----------
+  function boot(){
+    const data = JSON.parse(document.getElementById('plan-data').textContent);
+    document.title = data.meta.title + ' | 単一HTML Webアプリ';
+    document.getElementById('dateRange').textContent = fmtTimeRange(data.meta);
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    buildTabs(); buildPanels(data); initTheme(); setActiveTab(getActiveTab(), false);
+    // Convert any anchors created before lucide init
+    lucide.createIcons();
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
