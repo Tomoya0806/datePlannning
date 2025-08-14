@@ -69,6 +69,9 @@
        - 脚注やリンクに実URLを入れると、全UIでクリック可能になります
   -->
 
+  <!-- Debug self-test banner (表示は #debug ハッシュ時) -->
+  <div id="selftest" class="no-print hidden mb-3 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm"></div>
+
   <!-- Header -->
   <header class="sticky top-0 z-40 no-print backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:supports-[backdrop-filter]:bg-gray-900/70 bg-white/90 dark:bg-gray-900/90 border-b border-gray-200/60 dark:border-gray-800/60">
     <div class="max-w-5xl mx-auto flex items-center justify-between gap-3 px-4 py-3">
@@ -311,6 +314,19 @@
     });
   }
 
+  // ---------- Robust Chart helper ----------
+  function createChartWhenReady(canvas, config, assignRef){
+    const tryInit = () => {
+      if (typeof Chart === 'undefined') { requestAnimationFrame(tryInit); return; }
+      if (!canvas || !canvas.isConnected) { requestAnimationFrame(tryInit); return; }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { requestAnimationFrame(tryInit); return; }
+      const chart = new Chart(ctx, config);
+      if (typeof assignRef === 'function') assignRef(chart);
+    };
+    requestAnimationFrame(tryInit);
+  }
+
   // ---------- Tabs (with hash) ----------
   const tabs = [
     {id:'summary', label:'要約', icon:'sparkles'},
@@ -431,8 +447,8 @@
     const chartWrap = document.createElement('div');
     chartWrap.className = 'grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4';
 
-    const canvas = document.createElement('canvas'); canvas.id='ratioChart'; canvas.height=160;
-    const chartCard = card('屋内比率（プラン別）', canvas, 'pie-chart');
+    const ratioCanvas = document.createElement('canvas'); ratioCanvas.id='ratioChart'; ratioCanvas.height=160;
+    const chartCard = card('屋内比率（プラン別）', ratioCanvas, 'pie-chart');
 
     // Steps estimate
     const meters = data.routes.map(r=>avgFromTextMeters(r.walkMeters||'')).reduce((a,b)=>a+b,0);
@@ -446,14 +462,11 @@
 
     wrap.appendChild(goals); wrap.appendChild(chartWrap);
 
-    // After render, build chart
-    queueMicrotask(()=>{
-      const ctx = document.getElementById('ratioChart');
-      const ds = data.plans;
-      const labels = ['プランA','プランB','プランC'];
-      const vals = [ds.A.indoorRatio, ds.B.indoorRatio, ds.C.indoorRatio].map(x=>Math.round(x*100));
-      new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ label:'屋内比率(%)', data: vals }] }, options: { responsive:true, plugins:{ legend:{display:false} } } });
-    });
+    // After render, build chart robustly
+    const ds = data.plans;
+    const labels = ['プランA','プランB','プランC'];
+    const vals = [ds.A.indoorRatio, ds.B.indoorRatio, ds.C.indoorRatio].map(x=>Math.round(x*100));
+    createChartWhenReady(ratioCanvas, { type: 'bar', data: { labels, datasets: [{ label:'屋内比率(%)', data: vals }] }, options: { responsive:true, plugins:{ legend:{display:false} } } });
 
     return wrap;
   }
@@ -659,15 +672,26 @@
     const totalBox = document.createElement('div'); totalBox.className='text-sm';
 
     // Chart
-    const canvas = document.createElement('canvas'); canvas.id='budgetChart'; canvas.height=160;
+    const donutCanvas = document.createElement('canvas'); donutCanvas.id='budgetChart'; donutCanvas.height=160;
 
     const grid = document.createElement('div'); grid.className='grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3';
-    grid.appendChild(card('費目内訳（目安）', canvas, 'donut')); 
+    grid.appendChild(card('費目内訳（目安）', donutCanvas, 'donut')); 
     grid.appendChild(card('合計レンジ', totalBox, 'calculator')); 
 
     wrap.appendChild(ctrl); wrap.appendChild(grid);
 
     const caps = data.budget.shoppingCapOptions.map(s=>parseInt(s.replace(/[^0-9]/g,''),10));
+
+    let donutChart;
+    function drawBudgetChart(tr,ad,me,sh){
+      const dataSet = { labels:['交通','入場','飲食','買い物'], datasets:[{ data:[tr,ad,me,sh] }] };
+      if (!donutChart) {
+        // 初期化はCanvasの接続とChart読み込みを待ってから
+        createChartWhenReady(donutCanvas, {type:'doughnut', data: dataSet, options:{ plugins:{ legend:{position:'bottom'} } }}, (c)=>{ donutChart = c; });
+      } else {
+        donutChart.data = dataSet; donutChart.update();
+      }
+    }
 
     function calc(){
       const cap = caps[parseInt(slider.value,10)];
@@ -692,14 +716,6 @@
       // Chart with midpoints
       const transportMid = (tMin+tMax)/2, admMid=(aMin+aMax)/2, mealsMid=(mMin+mMax)/2;
       drawBudgetChart(transportMid, admMid, mealsMid, cap);
-    }
-
-    let chart;
-    function drawBudgetChart(tr,ad,me,sh){
-      const ctx = document.getElementById('budgetChart');
-      const dataSet = { labels:['交通','入場','飲食','買い物'], datasets:[{ data:[tr,ad,me,sh] }] };
-      if(chart) { chart.data = dataSet; chart.update(); return; }
-      chart = new Chart(ctx,{type:'doughnut', data: dataSet, options:{ plugins:{ legend:{position:'bottom'} } }});
     }
 
     slider.addEventListener('input', calc);
@@ -747,6 +763,37 @@
     }
   }
 
+  // ---------- Self tests (console & banner) ----------
+  function runTests(){
+    const results = [];
+    const ok = (name, cond) => results.push({name, ok: !!cond});
+
+    // parseRangeYen
+    const r1 = parseRangeYen('¥6,000–¥8,000（2人）'); ok('parseRangeYen range', r1[0]===6000 && r1[1]===8000);
+    const r2 = parseRangeYen('¥700'); ok('parseRangeYen single', r2[0]===700 && r2[1]===700);
+
+    // avgFromTextMeters
+    ok('avgFromTextMeters 〜400m', avgFromTextMeters('〜400m')===400);
+    ok('avgFromTextMeters 150–250m', avgFromTextMeters('150–250m')===200);
+    ok('avgFromTextMeters 駅内中心', avgFromTextMeters('駅内中心')===300);
+
+    // stepsFromMeters
+    const s = stepsFromMeters(700); ok('stepsFromMeters 700m ≈1000歩', s.steps===1000);
+
+    // Canvas context sanity
+    const c = document.createElement('canvas');
+    document.body.appendChild(c);
+    ok('canvas.getContext', !!c.getContext('2d'));
+    c.remove();
+
+    const failed = results.filter(r=>!r.ok);
+    const banner = $('#selftest');
+    const text = failed.length===0 ? `✅ Self-tests passed (${results.length})` : `⚠️ Self-tests failed: ${failed.map(f=>f.name).join(', ')}`;
+    banner.textContent = text;
+    if (location.hash==='#debug' || failed.length>0){ banner.classList.remove('hidden'); }
+    console.table(results);
+  }
+
   // ---------- Boot ----------
   function boot(){
     const data = JSON.parse(document.getElementById('plan-data').textContent);
@@ -757,6 +804,9 @@
     buildTabs(); buildPanels(data); initTheme(); setActiveTab(getActiveTab(), false);
     // Convert any anchors created before lucide init
     lucide.createIcons();
+
+    // run tests
+    runTests();
   }
 
   document.addEventListener('DOMContentLoaded', boot);
